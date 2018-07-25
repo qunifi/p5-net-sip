@@ -277,6 +277,27 @@ sub sendto {
     die "unknown type $self->{ipproto}";
 }
 
+sub update_tls {
+    my Net::SIP::SocketPool $self = shift;
+    my $new_tls = shift;
+
+    unless ($SSL_REUSE_CTX) {
+        warn "Unable to reuse SSL CTX with this version of IO::Socket::SSL";
+        return;
+    }
+
+    # Update client and master with our new TLS attributes.
+    # Future connections will then use these.
+    $self->{tls}{c} = {
+        %{ $self->{tls}{c} }
+        %{ $new_tls }
+    };
+
+    $self->{tls}{m} = {
+        %{ $self->{tls}{m} },
+        %{ $new_tls }
+    };
+}
 
 sub _add_socket {
     my Net::SIP::SocketPool $self = shift;
