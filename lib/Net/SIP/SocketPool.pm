@@ -102,14 +102,7 @@ sub new {
 		$SSL_VERIFY_PEER|$SSL_VERIFY_FAIL_IF_NO_PEER_CERT) :
 	    die "invalid setting for SSL_verify_client: $verify_client"
 	};
-	if ($SSL_REUSE_CTX) {
-	    for(qw(m c)) {
-		$self->{tls}{$_}{SSL_reuse_ctx} and next;
-		my $ctx = IO::Socket::SSL::SSL_Context->new($self->{tls}{$_})
-		    || die "failed to create SSL context: $SSL_ERROR";
-		$self->{tls}{$_}{SSL_reuse_ctx} = $ctx;
-	    }
-	}
+	$self->_setup_ctx() if ($SSL_REUSE_CTX);
     } else {
 	$self->{ipproto} = $proto || die "no protocol given";
     }
@@ -281,6 +274,11 @@ sub update_tls {
     my Net::SIP::SocketPool $self = shift;
     my $new_tls = shift;
 
+    unless ($self->{tls}) {
+        warn "SocketPool not set to use TLS";
+        return;
+    }
+
     unless ($SSL_REUSE_CTX) {
         warn "Unable to reuse SSL CTX with this version of IO::Socket::SSL";
         return;
@@ -289,7 +287,7 @@ sub update_tls {
     # Update client and master with our new TLS attributes.
     # Future connections will then use these.
     $self->{tls}{c} = {
-        %{ $self->{tls}{c} }
+        %{ $self->{tls}{c} },
         %{ $new_tls }
     };
 
@@ -297,6 +295,9 @@ sub update_tls {
         %{ $self->{tls}{m} },
         %{ $new_tls }
     };
+
+    # Recreate the SSL context
+    $self->_setup_ctx(1);
 }
 
 sub _add_socket {
@@ -751,6 +752,25 @@ sub _dump_certificate {
     my $issuer = Net::SSLeay::X509_NAME_oneline( Net::SSLeay::X509_get_issuer_name($cert));
     my $subject = Net::SSLeay::X509_NAME_oneline( Net::SSLeay::X509_get_subject_name($cert));
     return "s:$subject i:$issuer";
+}
+
+sub _setup_ctx {
+    my Net::SIP::SocketPool $self = shift;
+    my $recreate_ctx = shift;
+
+    for(qw(m c)) {
+        if ($self->{tls}{$_}{SSL_reuse_ctx}) {
+            if ($recreate_ctx) {
+                # Ensure SSL_Context doesn't just pass back existing ctx
+                delete $self->{tls}{$_}{SSL_reuse_ctx};
+            } else {
+                next;
+            }
+        }
+
+        my $ctx = IO::Socket::SSL::SSL_Context->new( $self->{tls}{$_} ) || die "failed to create SSL context: $SSL_ERROR";
+        $self->{tls}{$_}{SSL_reuse_ctx} = $ctx;
+    }
 }
 
 1;
